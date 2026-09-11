@@ -22,8 +22,9 @@ SPREADSHEET_NAME = "50/30/20 monthly spending"
 SHEET_MAIN_NAME = "MATT88"
 SHEET_PEMBAGIAN_NAME = "PEMBAGIAN 50% 30% 20 %"
 
-# State ConversationHandler
+# State ConversationHandler untuk Input Transaksi & Pilih Bulan Rekap
 KETERANGAN, KATEGORI, BANK_ASAL, BANK_TUJUAN, NOMINAL, BIAYA_ADM = range(6)
+PILIH_BULAN = 10  # State khusus untuk rekap bulanan
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
@@ -69,16 +70,28 @@ def get_bank_keyboard():
         one_time_keyboard=True
     )
 
+def get_month_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["SEP", "OCT"],
+            ["NOV", "DEC"],
+            ["🔙 Kembali ke Menu Utama"]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
 # --- HANDLERS TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name or "mattsraj"
     msg = (
-        "🔥 *Halo Matthew! Selamat Datang di Bot Keuangan!* 🔥\n\n"
-        "Saya siap membantu mencatat transaksi keuanganmu secara otomatis.\n\n"
+        f"🚀 *Halo {user_name}! Selamat Datang di Bot Monthly Savings MATT* 🚀\n\n"
+        "✨ *Sistem Pintar Pencatat Keuangan & Anggaran Pribadi* ✨\n\n"
         "📌 *INFORMASI REKENING & PERUNTUKAN:*\n"
         "🏦 *BCA*\nMATTHEW - KEBUTUHAN\n\n"
         "🏦 *BLU BCA*\nMATTHEW - KEINGINAN\n\n"
         "🏦 *MANDIRI*\nMATTHEW - TABUNGAN\n\n"
-        "Silakan pilih menu di bawah ini:"
+        "Silakan pilih menu di bawah ini untuk mulai mengelola keuanganmu:"
     )
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -102,42 +115,80 @@ async def handle_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         val = sheet.acell("F4").value
         await update.message.reply_text(f"💳 *Saldo Mandiri Matthew (TABUNGAN):*\nRp {val}", parse_mode="Markdown")
     elif "Total Rekap" in text:
-        try:
-            sheet_pembagian = doc.worksheet(SHEET_PEMBAGIAN_NAME)
-            
-            # Tentukan baris berdasarkan bulan saat ini (atau ambil otomatis dari kolom I)
-            # Berdasarkan gambar: SEP=baris 3, OCT=baris 5, NOV=baris 7, DEC=baris 9
-            current_month = datetime.now().strftime("%b").upper() # Contoh: "SEP", "OCT", dll
-            
-            # Mapping baris berdasarkan bulan di kolom I
-            month_rows = {
-                "SEP": 3,
-                "OCT": 5,
-                "NOV": 7,
-                "DEC": 9
-            }
-            
-            # Default ke baris 3 (SEP) jika bulan tidak ada dalam daftar, atau sesuaikan
-            target_row = month_rows.get(current_month, 3)
-            
-            # Ambil data pada baris bulan tersebut
-            r_data = sheet_pembagian.row_values(target_row)
-            
-            msg = (
-                f"📊 *REKAPITULASI TOTAL & PEMBAGIAN ({current_month})*\n\n"
-                f"• *50% (Kebutuhan):* Rp {r_data[0] if len(r_data) > 0 else '0'}\n"
-                f"• *30% (Keinginan):* Rp {r_data[1] if len(r_data) > 1 else '0'}\n"
-                f"• *20% (Tabungan):* Rp {r_data[2] if len(r_data) > 2 else '0'}\n"
-                f"• *TOTAL + ADM:* Rp {r_data[3] if len(r_data) > 3 else '0'}\n"
-                f"• *TOTAL MASUK:* Rp {r_data[4] if len(r_data) > 4 else '0'}\n"
-                f"• *BIAYA ADM:* Rp {r_data[5] if len(r_data) > 5 else '0'}\n"
-                f"• *SELISIH:* Rp {r_data[6] if len(r_data) > 6 else '0'}"
-            )
-            await update.message.reply_text(msg, parse_mode="Markdown")
-        except Exception as e:
-            await update.message.reply_text(f"⚠️ Gagal membaca Sheet Pembagian: {e}")
+        await update.message.reply_text(
+            "📅 Silakan pilih **Bulan Rekap** yang ingin kamu lihat rinciannya:",
+            parse_mode="Markdown",
+            reply_markup=get_month_keyboard()
+        )
+        return PILIH_BULAN
     elif "Stop Bot" in text:
         await update.message.reply_text("🛑 Bot dinonaktifkan. Ketik /start untuk mengaktifkan kembali.", reply_markup=ReplyKeyboardRemove())
+
+# --- HANDLER PILIH BULAN REKAP ---
+async def handle_pilih_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().upper()
+    
+    if "KEMBALI" in text:
+        await update.message.reply_text("Kembali ke menu utama:", reply_markup=get_main_keyboard())
+        return ConversationHandler.END
+
+    month_rows = {
+        "SEP": 3,
+        "OCT": 5,
+        "NOV": 7,
+        "DEC": 9
+    }
+
+    if text not in month_rows:
+        await update.message.reply_text("⚠️ Bulan tidak valid. Silakan pilih tombol bulan yang tersedia di bawah:", reply_markup=get_month_keyboard())
+        return PILIH_BULAN
+
+    doc = get_spreadsheet()
+    if not doc:
+        await update.message.reply_text("⚠️ Gagal terhubung ke Google Sheets.", reply_markup=get_main_keyboard())
+        return ConversationHandler.END
+
+    try:
+        sheet_pembagian = doc.worksheet(SHEET_PEMBAGIAN_NAME)
+        target_row = month_rows[text]
+        r_data = sheet_pembagian.row_values(target_row)
+
+        # Ambil data dari kolom A sampai H berdasarkan gambar sheet pembagian
+        kebutuhan_50 = r_data[0] if len(r_data) > 0 and r_data[0] != '' else '0'
+        keinginan_30 = r_data[1] if len(r_data) > 1 and r_data[1] != '' else '0'
+        tabungan_20  = r_data[2] if len(r_data) > 2 and r_data[2] != '' else '0'
+        total_adm    = r_data[3] if len(r_data) > 3 and r_data[3] != '' else '0'
+        total_masuk  = r_data[4] if len(r_data) > 4 and r_data[4] != '' else '0'
+        biaya_adm    = r_data[5] if len(r_data) > 5 and r_data[5] != '' else '0'
+        selisih      = r_data[6] if len(r_data) > 6 and r_data[6] != '' else '0'
+        total_terpakai = r_data[7] if len(r_data) > 7 and r_data[7] != '' else '0'
+
+        # Hitung sisa saldo/budget yang masih bisa digunakan (Total Masuk - Total Terpakai)
+        try:
+            clean_masuk = float(str(total_masuk).replace(',', ''))
+            clean_pakai = float(str(total_terpakai).replace(',', ''))
+            sisa_budget = clean_masuk - clean_pakai
+            sisa_str = f"Rp {sisa_budget:,.0f}"
+        except:
+            sisa_str = "Rp 0"
+
+        msg = (
+            f"📊 *REKAPITULASI KEUANGAN BULAN {text}*\n\n"
+            f"• *50% (Kebutuhan):* Rp {kebutuhan_50}\n"
+            f"• *30% (Keinginan):* Rp {keinginan_30}\n"
+            f"• *20% (Tabungan):* Rp {tabungan_20}\n"
+            f"• *TOTAL + ADM:* Rp {total_adm}\n"
+            f"• *TOTAL MASUK:* Rp {total_masuk}\n"
+            f"• *BIAYA ADM:* Rp {biaya_adm}\n"
+            f"• *SELISIH:* Rp {selisih}\n"
+            f"• *TOTAL TERPAKAI:* Rp {total_terpakai}\n"
+            f"• *SISA SALDO/BUDGET:* {sisa_str}"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Gagal membaca data bulan {text}: {e}", reply_markup=get_main_keyboard())
+
+    return ConversationHandler.END
 
 # --- ALUR INPUT TRANSAKSI ---
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -199,9 +250,6 @@ async def input_nominal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text.strip()
-        
-        # PERBAIKAN BUG LOGIKA 0:
-        # Hanya anggap 0 jika user mengetik tepat '0' atau memilih tombol '0 (Lewati)'
         digits = ''.join(filter(str.isdigit, text))
         if not digits or text == "0" or text.startswith("0 ("):
             adm = 0.0
@@ -237,7 +285,6 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "BLU" in tujuan: blu = val
                 if "BCA" in tujuan and "BLU" not in tujuan: bca = val
 
-            # --- CARI BARIS KOSONG PERTAMA BERDASARKAN KOLOM A ---
             col_a_values = sheet.col_values(1)
             next_row = len(col_a_values) + 1
             if next_row < 6:
@@ -277,12 +324,11 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛑 Proses input dibatalkan.", reply_markup=get_main_keyboard())
+    await update.message.reply_text("🛑 Proses dibatalkan.", reply_markup=get_main_keyboard())
     return ConversationHandler.END
 
 # --- MAIN ASYNC ENGINE ---
 async def main():
-    # 1. Inisialisasi Web Server (aiohttp)
     server = web.Application()
     server.router.add_get('/', handle_health_check)
     runner = web.AppRunner(server)
@@ -292,10 +338,10 @@ async def main():
     await site.start()
     logging.info(f"Web server berjalan di port {port}")
 
-    # 2. Inisialisasi Telegram Bot Application
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    conv_handler = ConversationHandler(
+    # Conversation handler untuk Input Transaksi
+    conv_input = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 Input Transaksi$"), start_input)],
         states={
             KETERANGAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_keterangan)],
@@ -308,17 +354,25 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
+    # Conversation handler untuk Pilih Bulan Rekap
+    conv_rekap = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📊 Total Rekap$"), handle_saldo)],
+        states={
+            PILIH_BULAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pilih_bulan)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_input)],
+    )
+
     app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(conv_handler)
+    app_bot.add_handler(conv_input)
+    app_bot.add_handler(conv_rekap)
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_saldo))
 
-    # 3. Jalankan Polling secara Asynchronous murni
     await app_bot.initialize()
     await app_bot.start()
     await app_bot.updater.start_polling(drop_pending_updates=True)
     logging.info("Bot Telegram berhasil polling!")
 
-    # Tetap jalankan proses selamanya
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
