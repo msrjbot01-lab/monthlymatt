@@ -219,16 +219,31 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "BLU" in tujuan: blu = val
                 if "BCA" in tujuan and "BLU" not in tujuan: bca = val
 
-            # Menyusun Kolom A (TGL) sampai I (BIAYA ADM)
-            sheet.append_row([
-                context.user_data["tgl"],
-                context.user_data["keterangan"],
-                context.user_data["kategori"],
-                "", "", mandiri, blu, bca, adm_val
-            ])
+            # --- CARI BARIS KOSONG PERTAMA BERDASARKAN KOLOM A (TANGGAL) ---
+            col_a_values = sheet.col_values(1)
+            next_row = len(col_a_values) + 1
+            
+            # Pastikan minimal mulai dari baris 6 (di bawah header)
+            if next_row < 6:
+                next_row = 6
+
+            row_data = [
+                context.user_data["tgl"],        # Kolom A (TGL)
+                context.user_data["keterangan"], # Kolom B (KETERANGAN)
+                kat,                             # Kolom C (KATEGORI)
+                "",                              # Kolom D
+                "",                              # Kolom E
+                mandiri,                         # Kolom F (MANDIRI)
+                blu,                             # Kolom G (BLU BCA)
+                bca,                             # Kolom H (BCA)
+                adm_val                          # Kolom I (BIAYA ADM)
+            ]
+
+            # Update spesifik pada rentang baris kosong yang ditemukan
+            sheet.update(f"A{next_row}:I{next_row}", [row_data])
 
             await update.message.reply_text(
-                "✅ *BERHASIL DI-INPUT KE SHEET MATT88!*\n\n"
+                f"✅ *BERHASIL DI-INPUT KE BARIS {next_row}!*\n\n"
                 f"📅 Tanggal: {context.user_data['tgl']}\n"
                 f"📝 Keterangan: {context.user_data['keterangan']}\n"
                 f"🏷 Kategori: {context.user_data['kategori']}\n"
@@ -242,7 +257,7 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Error Save: {e}")
-        await update.message.reply_text("⚠️ Terjadi kesalahan saat menyimpan data.", reply_markup=get_main_keyboard())
+        await update.message.reply_text(f"⚠️ Terjadi kesalahan saat menyimpan data: {e}", reply_markup=get_main_keyboard())
 
     return ConversationHandler.END
 
