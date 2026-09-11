@@ -21,6 +21,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8997458072:AAHEi_St3plnzLKQ98tN5rO2eSnG
 SPREADSHEET_NAME = "50/30/20 monthly spending"
 SHEET_MAIN_NAME = "MATT88"
 SHEET_PEMBAGIAN_NAME = "PEMBAGIAN 50% 30% 20 %"
+SHEET_USER_NAME = "User"  # Nama sheet untuk mencatat akses user
 
 # State ConversationHandler
 KETERANGAN, KATEGORI, BANK_ASAL, BANK_TUJUAN, NOMINAL, BIAYA_ADM = range(6)
@@ -45,6 +46,19 @@ def get_spreadsheet():
     except Exception as e:
         logging.error(f"Error Google Sheets: {e}")
     return None
+
+# --- FUNGSI MENCATAT USER AKSES ---
+def log_user_access(user_info):
+    try:
+        doc = get_spreadsheet()
+        if doc:
+            sheet_user = doc.worksheet(SHEET_USER_NAME)
+            timestamp = datetime.now().strftime("%d %b %Y %H:%M:%S")
+            # Menambahkan data ke baris baru paling bawah
+            sheet_user.append_row([user_info, timestamp])
+            logging.info(f"User dicatat: {user_info} pada {timestamp}")
+    except Exception as e:
+        logging.error(f"Gagal mencatat user: {e}")
 
 # --- WEB SERVER UNTUK RENDER (HEALTH CHECK) ---
 async def handle_health_check(request):
@@ -84,7 +98,13 @@ def get_month_keyboard():
 
 # --- HANDLERS TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_name = update.effective_user.first_name or "mattsraj"
+    user = update.effective_user
+    user_name = user.first_name or "mattsraj"
+    username_str = f"@{user.username}" if user.username else user_name
+    
+    # Panggil fungsi untuk mencatat user yang mengakses bot
+    log_user_access(username_str)
+
     msg = (
         f"🔥 *Halo {user_name}! Selamat Datang di Bot Monthly Savings MATT* 🔥\n\n"
         "✨ *Asisten Keuangan Pintar & Terstruktur Pribadimu* ✨\n\n"
@@ -199,21 +219,18 @@ async def proses_tampil_mutasi(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         sheet_main = doc.worksheet(SHEET_MAIN_NAME)
-        all_rows = sheet_main.get_all_values() # Ambil semua baris dari sheet MATT88
+        all_rows = sheet_main.get_all_values() 
 
-        # Filter baris dari baris ke-6 ke bawah yang kolom TGL-nya mengandung string bulan (misal: "Sep")
         matching_transactions = []
-        # Mapping nama bulan singkat di sheet
         month_map = {"SEP": "sep", "OCT": "oct", "NOV": "nov", "DEC": "dec"}
         target_keyword = month_map.get(bulan_str, bulan_str.lower())
 
-        for idx, row in enumerate(all_rows[5:], start=6): # Mulai dari baris 6
+        for idx, row in enumerate(all_rows[5:], start=6): 
             tgl = row[0] if len(row) > 0 else ""
             if target_keyword in tgl.lower():
                 keterangan = row[1] if len(row) > 1 else "-"
                 kategori = row[2] if len(row) > 2 else "-"
                 
-                # Cek nominal dari kolom F (Mandiri: indeks 5), G (Blu: indeks 6), H (Bca: indeks 7)
                 nominal_detail = []
                 headers = ["Mandiri", "Blu BCA", "BCA"]
                 for col_idx, h_name in zip([5, 6, 7], headers):
@@ -221,8 +238,6 @@ async def proses_tampil_mutasi(update: Update, context: ContextTypes.DEFAULT_TYP
                         nominal_detail.append(f"{h_name}: {row[col_idx]}")
                 
                 nom_str = " | ".join(nominal_detail) if nominal_detail else "Rp 0"
-                
-                # Biaya Admin di kolom I (indeks 8)
                 adm_str = row[8] if len(row) > 8 and row[8].strip() != "" else ""
 
                 matching_transactions.append({
@@ -463,7 +478,7 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
-    # Daftarkan command shortcut langsung
+    # Daftarkan handlers
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(CommandHandler("mutasisep", cmd_mutasi_sep))
     app_bot.add_handler(CommandHandler("mutasioct", cmd_mutasi_oct))
@@ -477,7 +492,9 @@ async def main():
 
     await app_bot.initialize()
     await app_bot.start()
-    app_bot.updater.start_polling(drop_pending_updates=True)
+    
+    # PERBAIKAN: Menambahkan 'await' di sini agar bot merespon dengan benar
+    await app_bot.updater.start_polling(drop_pending_updates=True)
     logging.info("Bot Telegram berhasil polling!")
 
     await asyncio.Event().wait()
