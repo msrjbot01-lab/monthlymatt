@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from aiohttp import web
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -21,7 +21,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8997458072:AAHEi_St3plnzLKQ98tN5rO2eSnG
 SPREADSHEET_NAME = "50/30/20 monthly spending"
 SHEET_MAIN_NAME = "MATT88"
 SHEET_PEMBAGIAN_NAME = "PEMBAGIAN 50% 30% 20 %"
-SHEET_USER_NAME = "User"  # Nama sheet untuk mencatat akses user
+SHEET_USER_NAME = "User"
 
 # State ConversationHandler
 KETERANGAN, KATEGORI, BANK_ASAL, BANK_TUJUAN, NOMINAL, BIAYA_ADM = range(6)
@@ -47,16 +47,16 @@ def get_spreadsheet():
         logging.error(f"Error Google Sheets: {e}")
     return None
 
-# --- FUNGSI MENCATAT USER AKSES ---
+# --- FUNGSI MENCATAT USER AKSES (WIB / UTC+7) ---
 def log_user_access(user_info):
     try:
         doc = get_spreadsheet()
         if doc:
             sheet_user = doc.worksheet(SHEET_USER_NAME)
-            timestamp = datetime.now().strftime("%d %b %Y %H:%M:%S")
-            # Menambahkan data ke baris baru paling bawah
+            wib_time = datetime.now(timezone(timedelta(hours=7)))
+            timestamp = wib_time.strftime("%d %b %Y %H:%M:%S")
             sheet_user.append_row([user_info, timestamp])
-            logging.info(f"User dicatat: {user_info} pada {timestamp}")
+            logging.info(f"User dicatat: {user_info} pada {timestamp} WIB")
     except Exception as e:
         logging.error(f"Gagal mencatat user: {e}")
 
@@ -102,7 +102,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = user.first_name or "mattsraj"
     username_str = f"@{user.username}" if user.username else user_name
     
-    # Panggil fungsi untuk mencatat user yang mengakses bot
     log_user_access(username_str)
 
     msg = (
@@ -298,11 +297,11 @@ async def cmd_mutasi_dec(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ALUR INPUT TRANSAKSI ---
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    formatted_date = datetime.now().strftime("%d %b %Y")
+    formatted_date = datetime.now(timezone(timedelta(hours=7))).strftime("%d %b %Y")
     context.user_data["tgl"] = formatted_date
 
     await update.message.reply_text(
-        f"📅 Tanggal otomatis diset: *{formatted_date}*\n\nSilakan masukkan *KETERANGAN* transaksi:",
+        f"📅 Tanggal otomatis diset (WIB): *{formatted_date}*\n\nSilakan masukkan *KETERANGAN* transaksi:",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -446,7 +445,6 @@ async def main():
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Conversation handler untuk Input Transaksi
     conv_input = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 Input Transaksi$"), start_input)],
         states={
@@ -460,7 +458,6 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
-    # Conversation handler untuk Pilih Bulan Rekap
     conv_rekap = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📊 Total Rekap$"), handle_saldo)],
         states={
@@ -469,7 +466,6 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
-    # Conversation handler untuk Pilih Bulan Mutasi
     conv_mutasi = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(📜 Cek Mutasi Transaksi|Mutasi)$"), handle_saldo)],
         states={
@@ -478,10 +474,10 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
-    # Daftarkan handlers
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(CommandHandler("mutasisep", cmd_mutasi_sep))
     app_bot.add_handler(CommandHandler("mutasioct", cmd_mutasi_oct))
+    app_bot.add_handler(CmdHandler := CommandHandler("mutasinov", cmd_mutasi_nov)) if False else None # fallback clean
     app_bot.add_handler(CommandHandler("mutasinov", cmd_mutasi_nov))
     app_bot.add_handler(CommandHandler("mutasidec", cmd_mutasi_dec))
 
@@ -492,8 +488,6 @@ async def main():
 
     await app_bot.initialize()
     await app_bot.start()
-    
-    # PERBAIKAN: Menambahkan 'await' di sini agar bot merespon dengan benar
     await app_bot.updater.start_polling(drop_pending_updates=True)
     logging.info("Bot Telegram berhasil polling!")
 
