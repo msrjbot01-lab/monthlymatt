@@ -104,16 +104,34 @@ async def handle_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "Total Rekap" in text:
         try:
             sheet_pembagian = doc.worksheet(SHEET_PEMBAGIAN_NAME)
-            r4 = sheet_pembagian.row_values(4)
+            
+            # Tentukan baris berdasarkan bulan saat ini (atau ambil otomatis dari kolom I)
+            # Berdasarkan gambar: SEP=baris 3, OCT=baris 5, NOV=baris 7, DEC=baris 9
+            current_month = datetime.now().strftime("%b").upper() # Contoh: "SEP", "OCT", dll
+            
+            # Mapping baris berdasarkan bulan di kolom I
+            month_rows = {
+                "SEP": 3,
+                "OCT": 5,
+                "NOV": 7,
+                "DEC": 9
+            }
+            
+            # Default ke baris 3 (SEP) jika bulan tidak ada dalam daftar, atau sesuaikan
+            target_row = month_rows.get(current_month, 3)
+            
+            # Ambil data pada baris bulan tersebut
+            r_data = sheet_pembagian.row_values(target_row)
+            
             msg = (
-                "📊 *REKAPITULASI TOTAL & PEMBAGIAN (50/30/20)*\n\n"
-                f"• *50% (Kebutuhan):* Rp {r4[0] if len(r4) > 0 else '0'}\n"
-                f"• *30% (Keinginan):* Rp {r4[1] if len(r4) > 1 else '0'}\n"
-                f"• *20% (Tabungan):* Rp {r4[2] if len(r4) > 2 else '0'}\n"
-                f"• *TOTAL + ADM:* Rp {r4[3] if len(r4) > 3 else '0'}\n"
-                f"• *TOTAL MASUK:* Rp {r4[4] if len(r4) > 4 else '0'}\n"
-                f"• *BIAYA ADM:* Rp {r4[5] if len(r4) > 5 else '0'}\n"
-                f"• *SELISIH:* Rp {r4[6] if len(r4) > 6 else '0'}"
+                f"📊 *REKAPITULASI TOTAL & PEMBAGIAN ({current_month})*\n\n"
+                f"• *50% (Kebutuhan):* Rp {r_data[0] if len(r_data) > 0 else '0'}\n"
+                f"• *30% (Keinginan):* Rp {r_data[1] if len(r_data) > 1 else '0'}\n"
+                f"• *20% (Tabungan):* Rp {r_data[2] if len(r_data) > 2 else '0'}\n"
+                f"• *TOTAL + ADM:* Rp {r_data[3] if len(r_data) > 3 else '0'}\n"
+                f"• *TOTAL MASUK:* Rp {r_data[4] if len(r_data) > 4 else '0'}\n"
+                f"• *BIAYA ADM:* Rp {r_data[5] if len(r_data) > 5 else '0'}\n"
+                f"• *SELISIH:* Rp {r_data[6] if len(r_data) > 6 else '0'}"
             )
             await update.message.reply_text(msg, parse_mode="Markdown")
         except Exception as e:
