@@ -1,4 +1,7 @@
+import os
 import logging
+from threading import Thread
+from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
@@ -6,19 +9,26 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     filters,
-    ConversationHandler,
 )
 
-# --- KONFIGURASI ---
-BOT_TOKEN = "8997458072:AAHEi_St3plnzLKQ98tN5rO2eSnGA0PDJhc"
+# --- KONFIGURASI BOT ---
+BOT_TOKEN = "ISI_TOKEN_BOT_TELEGRAM_ANDA"
 
-# Logging untuk memantau aktivitas & error di terminal
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# State untuk alur percakapan (Input Transaksi)
-KETERANGAN, KATEGORI, BANK_ASAL, BANK_TUJUAN, NOMINAL, BIAYA_ADM = range(6)
+# --- WEB SERVER UNTUK RENDER (DUMMY PORT) ---
+app_flask = Flask(__name__)
+
+@app_flask.route('/')
+def home():
+    return "Bot Telegram Aktif 24/7!"
+
+def run_flask():
+    # Render otomatis menyediakan environment variable PORT
+    port = int(os.environ.get("PORT", 8080))
+    app_flask.run(host="0.0.0.0", port=port)
 
 # --- KEYBOARD MENUS ---
 def get_main_keyboard():
@@ -31,7 +41,7 @@ def get_main_keyboard():
         resize_keyboard=True
     )
 
-# --- HANDLERS UTAMA ---
+# --- HANDLERS TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🔥 *Halo Matthew! Selamat Datang di Bot Keuangan!* 🔥\n\n"
@@ -54,7 +64,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "Mandiri" in text:
         await update.message.reply_text("💳 *Saldo Mandiri Matthew (TABUNGAN):*\nFitur baca Google Sheets siap diintegrasikan.", parse_mode="Markdown")
     elif "Total Rekap" in text:
-        await update.message.reply_text("📊 *Rekapitualsi Total:* Fitur siap diintegrasikan.", parse_mode="Markdown")
+        await update.message.reply_text("📊 *Rekapitulasi Total:* Fitur siap diintegrasikan.", parse_mode="Markdown")
     elif "Stop Bot" in text:
         await update.message.reply_text("🛑 Bot dinonaktifkan. Ketik /start untuk mengaktifkan kembali.", reply_markup=ReplyKeyboardRemove())
     else:
@@ -62,10 +72,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- MAIN RUNNER ---
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # 1. Jalankan Flask Server di Background Thread
+    server_thread = Thread(target=run_flask)
+    server_thread.daemon = True
+    server_thread.start()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # 2. Jalankan Telegram Bot Polling
+    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot Python sedang berjalan...")
-    app.run_polling()
+    print("Bot Python & Flask Web Server berjalan...")
+    app_bot.run_polling()
