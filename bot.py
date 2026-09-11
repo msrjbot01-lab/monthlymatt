@@ -22,9 +22,10 @@ SPREADSHEET_NAME = "50/30/20 monthly spending"
 SHEET_MAIN_NAME = "MATT88"
 SHEET_PEMBAGIAN_NAME = "PEMBAGIAN 50% 30% 20 %"
 
-# State ConversationHandler untuk Input Transaksi & Pilih Bulan Rekap
+# State ConversationHandler
 KETERANGAN, KATEGORI, BANK_ASAL, BANK_TUJUAN, NOMINAL, BIAYA_ADM = range(6)
-PILIH_BULAN = 10  # State khusus untuk rekap bulanan
+PILIH_BULAN_REKAP = 10
+PILIH_BULAN_MUTASI = 11
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
@@ -54,8 +55,8 @@ def get_main_keyboard():
     return ReplyKeyboardMarkup(
         [
             ["💰 BCA", "💳 BLU BCA", "🏦 Mandiri"],
-            ["📊 Total Rekap", "📝 Input Transaksi"],
-            ["🛑 Stop Bot"]
+            ["📊 Total Rekap", "📜 Cek Mutasi Transaksi"],
+            ["📝 Input Transaksi", "🛑 Stop Bot"]
         ],
         resize_keyboard=True
     )
@@ -85,13 +86,13 @@ def get_month_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name or "mattsraj"
     msg = (
-        f"🚀 *Halo {user_name}! Selamat Datang di Bot Monthly Savings MATT* 🚀\n\n"
-        "✨ *Sistem Pintar Pencatat Keuangan & Anggaran Pribadi* ✨\n\n"
+        f"🔥 *Halo {user_name}! Selamat Datang di Bot Monthly Savings MATT* 🔥\n\n"
+        "✨ *Asisten Keuangan Pintar & Terstruktur Pribadimu* ✨\n\n"
         "📌 *INFORMASI REKENING & PERUNTUKAN:*\n"
-        "🏦 *BCA*\nMATTHEW - KEBUTUHAN\n\n"
-        "🏦 *BLU BCA*\nMATTHEW - KEINGINAN\n\n"
-        "🏦 *MANDIRI*\nMATTHEW - TABUNGAN\n\n"
-        "Silakan pilih menu di bawah ini untuk mulai mengelola keuanganmu:"
+        "🏦 *BCA* ➔ MATTHEW (KEBUTUHAN)\n"
+        "🏦 *BLU BCA* ➔ MATTHEW (KEINGINAN)\n"
+        "🏦 *MANDIRI* ➔ MATTHEW (TABUNGAN)\n\n"
+        "Silakan gunakan tombol menu interaktif di bawah ini:"
     )
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -116,32 +117,34 @@ async def handle_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💳 *Saldo Mandiri Matthew (TABUNGAN):*\nRp {val}", parse_mode="Markdown")
     elif "Total Rekap" in text:
         await update.message.reply_text(
-            "📅 Silakan pilih **Bulan Rekap** yang ingin kamu lihat rinciannya:",
+            "📊 Silakan pilih **Bulan Rekap** yang ingin kamu lihat:",
             parse_mode="Markdown",
             reply_markup=get_month_keyboard()
         )
-        return PILIH_BULAN
+        return PILIH_BULAN_REKAP
+    elif "Cek Mutasi" in text or "Mutasi" in text:
+        await update.message.reply_text(
+            "📜 Silakan pilih **Bulan Mutasi** untuk melihat rincian transaksi:",
+            parse_mode="Markdown",
+            reply_markup=get_month_keyboard()
+        )
+        return PILIH_BULAN_MUTASI
     elif "Stop Bot" in text:
         await update.message.reply_text("🛑 Bot dinonaktifkan. Ketik /start untuk mengaktifkan kembali.", reply_markup=ReplyKeyboardRemove())
 
 # --- HANDLER PILIH BULAN REKAP ---
-async def handle_pilih_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_pilih_bulan_rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().upper()
     
     if "KEMBALI" in text:
         await update.message.reply_text("Kembali ke menu utama:", reply_markup=get_main_keyboard())
         return ConversationHandler.END
 
-    month_rows = {
-        "SEP": 3,
-        "OCT": 5,
-        "NOV": 7,
-        "DEC": 9
-    }
+    month_rows = {"SEP": 3, "OCT": 5, "NOV": 7, "DEC": 9}
 
     if text not in month_rows:
-        await update.message.reply_text("⚠️ Bulan tidak valid. Silakan pilih tombol bulan yang tersedia di bawah:", reply_markup=get_month_keyboard())
-        return PILIH_BULAN
+        await update.message.reply_text("⚠️ Pilihan tidak valid. Silakan pilih tombol bulan di bawah:", reply_markup=get_month_keyboard())
+        return PILIH_BULAN_REKAP
 
     doc = get_spreadsheet()
     if not doc:
@@ -150,10 +153,8 @@ async def handle_pilih_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         sheet_pembagian = doc.worksheet(SHEET_PEMBAGIAN_NAME)
-        target_row = month_rows[text]
-        r_data = sheet_pembagian.row_values(target_row)
+        r_data = sheet_pembagian.row_values(month_rows[text])
 
-        # Ambil data dari kolom A sampai H berdasarkan gambar sheet pembagian
         kebutuhan_50 = r_data[0] if len(r_data) > 0 and r_data[0] != '' else '0'
         keinginan_30 = r_data[1] if len(r_data) > 1 and r_data[1] != '' else '0'
         tabungan_20  = r_data[2] if len(r_data) > 2 and r_data[2] != '' else '0'
@@ -163,7 +164,6 @@ async def handle_pilih_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE)
         selisih      = r_data[6] if len(r_data) > 6 and r_data[6] != '' else '0'
         total_terpakai = r_data[7] if len(r_data) > 7 and r_data[7] != '' else '0'
 
-        # Hitung sisa saldo/budget yang masih bisa digunakan (Total Masuk - Total Terpakai)
         try:
             clean_masuk = float(str(total_masuk).replace(',', ''))
             clean_pakai = float(str(total_terpakai).replace(',', ''))
@@ -186,9 +186,100 @@ async def handle_pilih_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Gagal membaca data bulan {text}: {e}", reply_markup=get_main_keyboard())
+        await update.message.reply_text(f"⚠️ Gagal membaca data rekap bulan {text}: {e}", reply_markup=get_main_keyboard())
 
     return ConversationHandler.END
+
+# --- LOGIKA MUTASI TRANSAKSI PER BULAN ---
+async def proses_tampil_mutasi(update: Update, context: ContextTypes.DEFAULT_TYPE, bulan_str: str):
+    doc = get_spreadsheet()
+    if not doc:
+        await update.message.reply_text("⚠️ Gagal terhubung ke Google Sheets.", reply_markup=get_main_keyboard())
+        return
+
+    try:
+        sheet_main = doc.worksheet(SHEET_MAIN_NAME)
+        all_rows = sheet_main.get_all_values() # Ambil semua baris dari sheet MATT88
+
+        # Filter baris dari baris ke-6 ke bawah yang kolom TGL-nya mengandung string bulan (misal: "Sep")
+        matching_transactions = []
+        # Mapping nama bulan singkat di sheet
+        month_map = {"SEP": "sep", "OCT": "oct", "NOV": "nov", "DEC": "dec"}
+        target_keyword = month_map.get(bulan_str, bulan_str.lower())
+
+        for idx, row in enumerate(all_rows[5:], start=6): # Mulai dari baris 6
+            tgl = row[0] if len(row) > 0 else ""
+            if target_keyword in tgl.lower():
+                keterangan = row[1] if len(row) > 1 else "-"
+                kategori = row[2] if len(row) > 2 else "-"
+                
+                # Cek nominal dari kolom F (Mandiri: indeks 5), G (Blu: indeks 6), H (Bca: indeks 7)
+                nominal_detail = []
+                headers = ["Mandiri", "Blu BCA", "BCA"]
+                for col_idx, h_name in zip([5, 6, 7], headers):
+                    if len(row) > col_idx and row[col_idx].strip() != "":
+                        nominal_detail.append(f"{h_name}: {row[col_idx]}")
+                
+                nom_str = " | ".join(nominal_detail) if nominal_detail else "Rp 0"
+                
+                # Biaya Admin di kolom I (indeks 8)
+                adm_str = row[8] if len(row) > 8 and row[8].strip() != "" else ""
+
+                matching_transactions.append({
+                    "tgl": tgl,
+                    "ket": keterangan,
+                    "kat": kategori,
+                    "nom": nom_str,
+                    "adm": adm_str
+                })
+
+        if not matching_transactions:
+            await update.message.reply_text(f"📜 Tidak ada catatan mutasi transaksi untuk bulan **{bulan_str}**.", parse_mode="Markdown", reply_markup=get_main_keyboard())
+            return
+
+        response_msg = f"📜 *MUTASI TRANSAKSI BULAN {bulan_str}*\n" + "═" * 30 + "\n\n"
+        for i, tx in enumerate(matching_transactions, 1):
+            response_msg += (
+                f"*{i}. Tanggal:* {tx['tgl']}\n"
+                f"   *Keterangan:* {tx['ket']}\n"
+                f"   *Kategori:* {tx['kat']}\n"
+                f"   *Nominal:* {tx['nom']}\n"
+            )
+            if tx['adm']:
+                response_msg += f"   *Biaya Adm:* {tx['adm']}\n"
+            response_msg +="\n"
+
+        await update.message.reply_text(response_msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Gagal memuat mutasi: {e}", reply_markup=get_main_keyboard())
+
+async def handle_pilih_bulan_mutasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().upper()
+    if "KEMBALI" in text:
+        await update.message.reply_text("Kembali ke menu utama:", reply_markup=get_main_keyboard())
+        return ConversationHandler.END
+
+    valid_months = ["SEP", "OCT", "NOV", "DEC"]
+    if text not in valid_months:
+        await update.message.reply_text("⚠️ Pilihan tidak valid. Silakan pilih tombol bulan di bawah:", reply_markup=get_month_keyboard())
+        return PILIH_BULAN_MUTASI
+
+    await proses_tampil_mutasi(update, context, text)
+    return ConversationHandler.END
+
+# --- COMMAND SHORTCUT LANGSUNG (/mutasisep, /mutasioct, dll) ---
+async def cmd_mutasi_sep(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await proses_tampil_mutasi(update, context, "SEP")
+
+async def cmd_mutasi_oct(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await proses_tampil_mutasi(update, context, "OCT")
+
+async def cmd_mutasi_nov(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await proses_tampil_mutasi(update, context, "NOV")
+
+async def cmd_mutasi_dec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await proses_tampil_mutasi(update, context, "DEC")
 
 # --- ALUR INPUT TRANSAKSI ---
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -358,19 +449,35 @@ async def main():
     conv_rekap = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📊 Total Rekap$"), handle_saldo)],
         states={
-            PILIH_BULAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pilih_bulan)],
+            PILIH_BULAN_REKAP: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pilih_bulan_rekap)],
         },
         fallbacks=[CommandHandler("cancel", cancel_input)],
     )
 
+    # Conversation handler untuk Pilih Bulan Mutasi
+    conv_mutasi = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^(📜 Cek Mutasi Transaksi|Mutasi)$"), handle_saldo)],
+        states={
+            PILIH_BULAN_MUTASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pilih_bulan_mutasi)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_input)],
+    )
+
+    # Daftarkan command shortcut langsung
     app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(CommandHandler("mutasisep", cmd_mutasi_sep))
+    app_bot.add_handler(CommandHandler("mutasioct", cmd_mutasi_oct))
+    app_bot.add_handler(CommandHandler("mutasinov", cmd_mutasi_nov))
+    app_bot.add_handler(CommandHandler("mutasidec", cmd_mutasi_dec))
+
     app_bot.add_handler(conv_input)
     app_bot.add_handler(conv_rekap)
+    app_bot.add_handler(conv_mutasi)
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_saldo))
 
     await app_bot.initialize()
     await app_bot.start()
-    await app_bot.updater.start_polling(drop_pending_updates=True)
+    app_bot.updater.start_polling(drop_pending_updates=True)
     logging.info("Bot Telegram berhasil polling!")
 
     await asyncio.Event().wait()
