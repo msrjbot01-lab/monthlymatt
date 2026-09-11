@@ -228,7 +228,7 @@ async def proses_tampil_mutasi(update: Update, context: ContextTypes.DEFAULT_TYP
             tgl = row[0] if len(row) > 0 else ""
             if target_keyword in tgl.lower():
                 keterangan = row[1] if len(row) > 1 else "-"
-                kategori = row[2] if len(row) > 2 else "-"
+                kategori = row[4] if len(row) > 4 else "-"  # Kolom E (Kategori)
                 
                 nominal_detail = []
                 headers = ["Mandiri", "Blu BCA", "BCA"]
@@ -295,7 +295,7 @@ async def cmd_mutasi_nov(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_mutasi_dec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await proses_tampil_mutasi(update, context, "DEC")
 
-# --- ALUR INPUT TRANSAKSI ---
+# --- ALUR INPUT TRANSAKSI (DENGAN PILIH KATEGORI DI TELEGRAM) ---
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     formatted_date = datetime.now(timezone(timedelta(hours=7))).strftime("%d %b %Y")
     context.user_data["tgl"] = formatted_date
@@ -308,9 +308,16 @@ async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return KETERANGAN
 
 async def input_keterangan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["keterangan"] = update.message.text
+    context.user_data["keterangan"] = update.message.text.strip()
+    
+    # Menampilkan tombol pilihan kategori persis seperti di sheet Matthew
     keyboard = ReplyKeyboardMarkup(
-        [["GAJI", "PINDAH DANA"], ["KEBUTUHAN", "KEINGINAN"]],
+        [
+            ["KEBUTUHAN", "KEINGINAN"],
+            ["TABUNGAN", "GAJI"],
+            ["BONUS", "INCOME LAIN"],
+            ["PINDAH DANA"]
+        ],
         resize_keyboard=True,
         one_time_keyboard=True
     )
@@ -318,7 +325,7 @@ async def input_keterangan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return KATEGORI
 
 async def input_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kategori = update.message.text.upper()
+    kategori = update.message.text.upper().strip()
     context.user_data["kategori"] = kategori
 
     if "PINDAH" in kategori:
@@ -335,8 +342,13 @@ async def input_bank_asal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def input_bank_tujuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["bank_tujuan"] = update.message.text.upper()
-    if "PINDAH" in context.user_data["kategori"]:
-        context.user_data["keterangan"] = f"{context.user_data['bank_asal']} >> {context.user_data['bank_tujuan']}"
+    
+    # Jika kategori Pindah Dana dan ada bank asal & tujuan, buat keterangan otomatis jika belum ada >>
+    if "PINDAH" in context.user_data.get("kategori", ""):
+        asal = context.user_data.get("bank_asal", "BCA MATTHEW")
+        tujuan = context.user_data["bank_tujuan"]
+        if ">>" not in context.user_data.get("keterangan", ""):
+            context.user_data["keterangan"] = f"{asal} >> {tujuan}"
 
     await update.message.reply_text("Masukkan *NOMINAL* angka (contoh: 42901):", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
     return NOMINAL
@@ -369,11 +381,12 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mandiri, blu, bca = "", "", ""
             adm_val = -adm if adm > 0 else ""
             nom = context.user_data["nominal"]
-            kat = context.user_data["kategori"]
+            
+            kat = context.user_data.get("kategori", "KEBUTUHAN")
 
             if "PINDAH" in kat:
-                asal = context.user_data["bank_asal"]
-                tujuan = context.user_data["bank_tujuan"]
+                asal = context.user_data.get("bank_asal", "")
+                tujuan = context.user_data.get("bank_tujuan", "")
                 
                 if "MANDIRI" in asal: mandiri = -(nom + adm)
                 elif "MANDIRI" in tujuan: mandiri = nom
@@ -384,8 +397,11 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "BCA" in asal and "BLU" not in asal: bca = -(nom + adm)
                 elif "BCA" in tujuan and "BLU" not in tujuan: bca = nom
             else:
-                val = nom if "GAJI" in kat else -nom
-                tujuan = context.user_data["bank_tujuan"]
+                # GAJI, BONUS, INCOME LAIN masuk sebagai pemasukan (+) ; KEBUTUHAN, KEINGINAN, TABUNGAN sebagai pengeluaran (-)
+                is_income = any(inc in kat for inc in ["GAJI", "BONUS", "INCOME"])
+                val = nom if is_income else -nom
+                
+                tujuan = context.user_data.get("bank_tujuan", "")
                 if "MANDIRI" in tujuan: mandiri = val
                 if "BLU" in tujuan: blu = val
                 if "BCA" in tujuan and "BLU" not in tujuan: bca = val
@@ -395,25 +411,31 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if next_row < 6:
                 next_row = 6
 
+            # Mapping sesuai struktur sheet:
+            # Kolom A: Tgl (index 0)
+            # Kolom B: Keterangan (index 1)
+            # Kolom C & D: Kosong / spasi (index 2 & 3)
+            # Kolom E: Kategori (index 4)
+            # Kolom F, G, H, I: Nominal & Adm
             row_data = [
-                context.user_data["tgl"],
-                context.user_data["keterangan"],
-                kat,
-                "",
-                "",
-                mandiri,
-                blu,
-                bca,
-                adm_val
+                context.user_data["tgl"],          # Kolom A
+                context.user_data["keterangan"],   # Kolom B
+                "",                                # Kolom C
+                "",                                # Kolom D
+                kat,                               # Kolom E (KATEGORI dimasukkan tepat di sini!)
+                mandiri,                           # Kolom F
+                blu,                               # Kolom G
+                bca,                               # Kolom H
+                adm_val                            # Kolom I
             ]
 
             sheet.update(f"A{next_row}:I{next_row}", [row_data])
 
             await update.message.reply_text(
-                f"✅ *BERHASIL DI-INPUT KE BARIS {next_row}!*\n\n"
+                f"✅ *BERHASIL DISIMPAN KE BARIS {next_row}!*\n\n"
                 f"📅 Tanggal: {context.user_data['tgl']}\n"
                 f"📝 Keterangan: {context.user_data['keterangan']}\n"
-                f"🏷 Kategori: {context.user_data['kategori']}\n"
+                f"🏷 Kategori: {kat}\n"
                 f"💵 Nominal: Rp {nom:,.0f}\n"
                 f"💸 Biaya Adm: Rp {adm:,.0f}",
                 parse_mode="Markdown",
@@ -477,7 +499,6 @@ async def main():
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(CommandHandler("mutasisep", cmd_mutasi_sep))
     app_bot.add_handler(CommandHandler("mutasioct", cmd_mutasi_oct))
-    app_bot.add_handler(CmdHandler := CommandHandler("mutasinov", cmd_mutasi_nov)) if False else None # fallback clean
     app_bot.add_handler(CommandHandler("mutasinov", cmd_mutasi_nov))
     app_bot.add_handler(CommandHandler("mutasidec", cmd_mutasi_dec))
 
