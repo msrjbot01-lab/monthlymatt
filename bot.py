@@ -180,8 +180,16 @@ async def input_nominal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = update.message.text
-        adm = 0.0 if "0" in text else float(''.join(filter(str.isdigit, text)))
+        text = update.message.text.strip()
+        
+        # PERBAIKAN BUG LOGIKA 0:
+        # Hanya anggap 0 jika user mengetik tepat '0' atau memilih tombol '0 (Lewati)'
+        digits = ''.join(filter(str.isdigit, text))
+        if not digits or text == "0" or text.startswith("0 ("):
+            adm = 0.0
+        else:
+            adm = float(digits)
+
         context.user_data["biaya_adm"] = adm
 
         doc = get_spreadsheet()
