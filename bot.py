@@ -3,8 +3,7 @@ import json
 import logging
 import asyncio
 from datetime import datetime
-from threading import Thread
-from flask import Flask
+from aiohttp import web
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -45,12 +44,9 @@ def get_spreadsheet():
         logging.error(f"Error Google Sheets: {e}")
     return None
 
-# --- WEB SERVER UNTUK RENDER ---
-app_flask = Flask(__name__)
-
-@app_flask.route('/')
-def home():
-    return "Bot Telegram Keuangan Aktif 24/7!"
+# --- WEB SERVER UNTUK RENDER (HEALTH CHECK) ---
+async def handle_health_check(request):
+    return web.Response(text="Bot Telegram Keuangan Aktif 24/7!")
 
 # --- KEYBOARD MENUS ---
 def get_main_keyboard():
@@ -91,7 +87,7 @@ async def handle_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = get_spreadsheet()
     
     if not doc:
-        await update.message.reply_text("⚠️ Gagal terhubung ke Google Sheets. Pastikan Service Account sudah diberi akses Share 'Editor' ke Spreadsheet.")
+        await update.message.reply_text("⚠️ Gagal terhubung ke Google Sheets.")
         return
 
     sheet = doc.worksheet(SHEET_MAIN_NAME)
@@ -125,7 +121,7 @@ async def handle_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "Stop Bot" in text:
         await update.message.reply_text("🛑 Bot dinonaktifkan. Ketik /start untuk mengaktifkan kembali.", reply_markup=ReplyKeyboardRemove())
 
-# --- ALUR INPUT TRANSAKSI (CONVERSATION) ---
+# --- ALUR INPUT TRANSAKSI ---
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     formatted_date = datetime.now().strftime("%d %b %Y")
     context.user_data["tgl"] = formatted_date
@@ -215,27 +211,24 @@ async def input_biaya_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "BLU" in tujuan: blu = val
                 if "BCA" in tujuan and "BLU" not in tujuan: bca = val
 
-            # --- CARI BARIS KOSONG PERTAMA BERDASARKAN KOLOM A (TANGGAL) ---
+            # --- CARI BARIS KOSONG PERTAMA BERDASARKAN KOLOM A ---
             col_a_values = sheet.col_values(1)
             next_row = len(col_a_values) + 1
-            
-            # Pastikan minimal mulai dari baris 6 (di bawah header)
             if next_row < 6:
                 next_row = 6
 
             row_data = [
-                context.user_data["tgl"],        # Kolom A (TGL)
-                context.user_data["keterangan"], # Kolom B (KETERANGAN)
-                kat,                             # Kolom C (KATEGORI)
-                "",                              # Kolom D
-                "",                              # Kolom E
-                mandiri,                         # Kolom F (MANDIRI)
-                blu,                             # Kolom G (BLU BCA)
-                bca,                             # Kolom H (BCA)
-                adm_val                          # Kolom I (BIAYA ADM)
+                context.user_data["tgl"],
+                context.user_data["keterangan"],
+                kat,
+                "",
+                "",
+                mandiri,
+                blu,
+                bca,
+                adm_val
             ]
 
-            # Update spesifik pada rentang baris kosong yang ditemukan
             sheet.update(f"A{next_row}:I{next_row}", [row_data])
 
             await update.message.reply_text(
@@ -261,11 +254,19 @@ async def cancel_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🛑 Proses input dibatalkan.", reply_markup=get_main_keyboard())
     return ConversationHandler.END
 
-# --- MAIN RUNNER (THREADING & ASYNC FIX) ---
-def run_telegram_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# --- MAIN ASYNC ENGINE ---
+async def main():
+    # 1. Inisialisasi Web Server (aiohttp)
+    server = web.Application()
+    server.router.add_get('/', handle_health_check)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"Web server berjalan di port {port}")
 
+    # 2. Inisialisasi Telegram Bot Application
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -285,15 +286,14 @@ def run_telegram_bot():
     app_bot.add_handler(conv_handler)
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_saldo))
 
-    print("Bot Telegram siap & polling dimulai...")
-    app_bot.run_polling(drop_pending_updates=True)
+    # 3. Jalankan Polling secara Asynchronous murni
+    await app_bot.initialize()
+    await app_bot.start()
+    await app_bot.updater.start_polling(drop_pending_updates=True)
+    logging.info("Bot Telegram berhasil polling!")
+
+    # Tetap jalankan proses selamanya
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    # 1. Jalankan Telegram Bot di dalam Background Thread Terpisah
-    bot_thread = Thread(target=run_telegram_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-
-    # 2. Jalankan Flask Web Server di Main Thread (Port Render)
-    port = int(os.environ.get("PORT", 8080))
-    app_flask.run(host="0.0.0.0", port=port)
+    asyncio.run(main())
