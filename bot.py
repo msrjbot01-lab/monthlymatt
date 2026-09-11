@@ -52,10 +52,6 @@ app_flask = Flask(__name__)
 def home():
     return "Bot Telegram Keuangan Aktif 24/7!"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app_flask.run(host="0.0.0.0", port=port)
-
 # --- KEYBOARD MENUS ---
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
@@ -265,12 +261,8 @@ async def cancel_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🛑 Proses input dibatalkan.", reply_markup=get_main_keyboard())
     return ConversationHandler.END
 
-# --- MAIN RUNNER ---
-if __name__ == "__main__":
-    server_thread = Thread(target=run_flask)
-    server_thread.daemon = True
-    server_thread.start()
-
+# --- MAIN RUNNER (THREADING & ASYNC FIX) ---
+def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -293,5 +285,15 @@ if __name__ == "__main__":
     app_bot.add_handler(conv_handler)
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_saldo))
 
-    print("Bot Python & Flask Web Server berjalan...")
-    app_bot.run_polling()
+    print("Bot Telegram siap & polling dimulai...")
+    app_bot.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    # 1. Jalankan Telegram Bot di dalam Background Thread Terpisah
+    bot_thread = Thread(target=run_telegram_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    # 2. Jalankan Flask Web Server di Main Thread (Port Render)
+    port = int(os.environ.get("PORT", 8080))
+    app_flask.run(host="0.0.0.0", port=port)
