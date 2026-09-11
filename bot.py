@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 # --- KONFIGURASI BOT ---
-BOT_TOKEN = "ISI_TOKEN_BOT_TELEGRAM_ANDA"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
